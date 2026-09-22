@@ -69,70 +69,51 @@ parse_params "$@"
 
 # --- End of CLI template ---
 
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
 
 ki_etc_kubeadm_path=""
 
-POD_LOGS_PATH=/var/log/pods
-
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   ki_etc_kubeadm_path=$($yq_cmd '.ki_etc_kubeadm_path' < "$vars_path")
 
-  if [[ $("$ki_opt_scripts_path"/systemctl.sh exists kubelet) = "true" ]]; then
+  if [[ $("$ki_env_scripts_path"/systemctl.sh exists kubelet) = "true" ]]; then
     kubeadm reset -f
-    "$ki_opt_scripts_path"/systemctl.sh disable kubelet
+    "$ki_env_scripts_path"/systemctl.sh disable kubelet
   fi
   rm -rf ~/.kube
   rm -rf "$ki_etc_kubeadm_path"
-  clear_pod_logs
 
   return 0
 }
 
-# kubeadm reset empties the kubelet directory but leaves the container logs
-# where they are, and nothing else cleans them either. They would be counted
-# against the ephemeral storage of the node the next time it joins, and on a node
-# being given an ephemeral storage device they would block the emptiness check of
-# setup-ephemeral-storage.sh, which is the path a node already in service takes
-# to get one
-#
-# Only the contents go. The directory itself may be a mount point
-clear_pod_logs() {
-  [[ ! -d $POD_LOGS_PATH ]] && return 0
-
-  find "$POD_LOGS_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-
-  return 0
-}
-
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

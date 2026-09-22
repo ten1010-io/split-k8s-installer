@@ -4,19 +4,17 @@ SCRIPT_DIR_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
 
 print_usage() {
   cat <<EOF
-Usage: $(basename "${BASH_SOURCE[0]}") [-h] [-v] [--vars-path path] [--update]
+Usage: $(basename "${BASH_SOURCE[0]}") [-h] [-v] [--vars-path path]
 Available options:
 -h, --help      Print this help and exit
 -v, --verbose   Print script debug info
 --vars-path     File path
---update
 EOF
   exit
 }
 
 parse_params() {
   vars_path=""
-  update="false"
 
   while :; do
     case "${1-}" in
@@ -28,7 +26,6 @@ parse_params() {
       vars_path="${2-}"
       shift
       ;;
-    --update) update="true" ;;
     -?*) die "[ERROR] Unknown option: $1" ;;
     *) break ;;
     esac
@@ -72,10 +69,10 @@ parse_params "$@"
 
 # --- End of CLI template ---
 
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
@@ -84,42 +81,29 @@ nvidia_gpu=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   nvidia_gpu=$($yq_cmd '.nvidia_gpu' < "$vars_path")
 
-  [[ $update = "false" ]] && require_containerd_not_enabled
+  require_containerd_not_enabled
 
   [[ $nvidia_gpu = "true" ]] && require_nvidia_gpu_exists
 
   mkdir -p /etc/containerd/config.d
   $jinja2_cmd --format yaml -o "/etc/containerd/config.toml" "$SCRIPT_DIR_PATH"/templates/config.toml.j2 "$vars_path"
-  # Deleted rather than left alone when the node has no gpu, because config.toml
-  # imports the whole directory. A drop in an earlier run wrote would otherwise keep
-  # the nvidia runtime as the default of a node that no longer has a gpu
-  rm -f /etc/containerd/config.d/99-nvidia.toml
   [[ $nvidia_gpu = "true" ]] &&
     $jinja2_cmd --format yaml -o "/etc/containerd/config.d/99-nvidia.toml" "$SCRIPT_DIR_PATH"/templates/config.d/99-nvidia.toml.j2 "$vars_path"
-
-  # Restarting containerd tears down every container of the node, so an update is
-  # meant to run against a node that has been drained first. A node that does not
-  # have containerd enabled yet is set up rather than restarted, so that an update
-  # which failed part way through the cluster can simply be repeated
-  if [[ $update = "true" && $("$ki_opt_scripts_path"/systemctl.sh is-enabled containerd) = "true" ]]; then
-    "$ki_opt_scripts_path"/systemctl.sh restart containerd
-  else
-    "$ki_opt_scripts_path"/systemctl.sh enable containerd
-  fi
+  "$ki_env_scripts_path"/systemctl.sh enable containerd
 
   return 0
 }
 
 require_nvidia_gpu_exists() {
   local result
-  result=$("$ki_opt_scripts_path"/preflight/nvidia-gpu-exists.sh)
+  result=$("$ki_env_scripts_path"/preflight/nvidia-gpu-exists.sh)
 
   [[ $result = "false" ]] && die "[ERROR] Nvidia gpu not detected"
 
@@ -128,29 +112,29 @@ require_nvidia_gpu_exists() {
 
 require_containerd_not_enabled() {
   local result
-  result=$("$ki_opt_scripts_path"/systemctl.sh is-enabled containerd)
+  result=$("$ki_env_scripts_path"/systemctl.sh is-enabled containerd)
 
   [[ $result = true ]] && die "[ERROR] Containerd already enabled"
 
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

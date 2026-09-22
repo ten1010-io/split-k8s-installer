@@ -1,9 +1,0 @@
-- import_playbook: tasks/begin-playbook.yml
-  vars:
-    playbook: "prune-k8s-registry"
-
-- import_playbook: tasks/prepare-vars.yml
-
-- import_playbook: tasks/prune-k8s-registry.yml
-
-- import_playbook: tasks/reset-vars-file.yml

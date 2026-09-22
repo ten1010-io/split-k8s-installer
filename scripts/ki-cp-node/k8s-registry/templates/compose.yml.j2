@@ -1,6 +1,6 @@
 services:
   registry:
-    image: {{ ki_cp_k8s_registry_image }}
+    image: registry:2.8
     ports:
       - "{{ ki_cp_k8s_registry_port }}:5000"
     volumes:
@@ -13,11 +13,7 @@ services:
         uploadpurging:
           enabled: false
         readonly:
-          enabled: {{ readonly_enabled }}
-      # What lets prune-k8s-registry.yml remove a manifest at all. Deleting is
-      # refused outright without it, and the storage a deleted manifest held is
-      # only reclaimed by the garbage collection that runs after
-      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+          enabled: true
       REGISTRY_HTTP_TLS_CERTIFICATE: "/etc/registry/tls.crt"
       REGISTRY_HTTP_TLS_KEY: "/etc/registry/tls.key"
     network_mode: bridge

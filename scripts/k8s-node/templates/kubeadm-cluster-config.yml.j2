@@ -8,3 +8,9 @@ kubernetesVersion: {{ k8s_version }}
 controlPlaneEndpoint: {{ internal_network_ki_cp_dns_name }}:{{ ki_cp_k8s_cp_lb_port }}
 certificateValidityPeriod: {{ k8s_certificate_validity_period }}
 caCertificateValidityPeriod: {{ k8s_ca_certificate_validity_period }}
+{%- if os_major_version is defined and os_major_version == "8" %}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+failCgroupV1: false
+{%- endif %}

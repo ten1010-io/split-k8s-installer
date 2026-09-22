@@ -69,10 +69,10 @@ parse_params "$@"
 
 # --- End of CLI template ---
 
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
@@ -85,10 +85,10 @@ node_name=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   ki_etc_kubeadm_path=$($yq_cmd '.ki_etc_kubeadm_path' < "$vars_path")
   ki_tmp_root_path=$($yq_cmd '.ki_tmp_root_path' < "$vars_path")
@@ -105,13 +105,9 @@ main() {
 
   $jinja2_cmd --format yaml -o "$ki_etc_kubeadm_path""/kubeadm-cluster-config.yml" "$SCRIPT_DIR_PATH"/templates/kubeadm-cluster-config.yml.j2 "$vars_path"
   $jinja2_cmd -D node_name="$node_name" --format yaml -o "$ki_etc_kubeadm_path""/kubeadm-init-config.yml" "$SCRIPT_DIR_PATH"/templates/kubeadm-init-config.yml.j2 "$vars_path"
-  create_kubelet_config_file
-  create_kubelet_config_patch_file
   cat "$ki_etc_kubeadm_path/kubeadm-cluster-config.yml" > "$ki_tmp_root_path/kubeadm-config.yml"
   echo "---" >> "$ki_tmp_root_path/kubeadm-config.yml"
   cat "$ki_etc_kubeadm_path/kubeadm-init-config.yml" >> "$ki_tmp_root_path/kubeadm-config.yml"
-  echo "---" >> "$ki_tmp_root_path/kubeadm-config.yml"
-  cat "$ki_etc_kubeadm_path/kubeadm-kubelet-config.yml" >> "$ki_tmp_root_path/kubeadm-config.yml"
 
   kubeadm init --upload-certs --config "$ki_tmp_root_path/kubeadm-config.yml"
   rm -f "$ki_tmp_root_path/kubeadm-config.yml"
@@ -119,33 +115,6 @@ main() {
   mkdir -p $HOME/.kube
   cp -f /etc/kubernetes/admin.conf $HOME/.kube/config
   chown $(id -u):$(id -g) $HOME/.kube/config
-
-  return 0
-}
-
-# Becomes the cluster wide baseline. kubeadm uploads it to the kubelet-config
-# ConfigMap in the kube-system namespace, and every node joining later downloads
-# it to /var/lib/kubelet/config.yaml
-create_kubelet_config_file() {
-  $jinja2_cmd --format yaml \
-              -o "$ki_etc_kubeadm_path""/kubeadm-kubelet-config.yml" \
-              "$SCRIPT_DIR_PATH"/templates/kubeadm-kubelet-config.yml.j2 \
-              "$vars_path"
-
-  return 0
-}
-
-# The reservations are calculated per node, so each node patches the baseline
-# with the values calculated for its own capacity. On this node the patch is
-# identical to the baseline, but it is written anyway so that the patch
-# directory referenced by kubeadm-init-config.yml is never empty and so that the
-# init path and the join path stay the same
-create_kubelet_config_patch_file() {
-  mkdir -p "$ki_etc_kubeadm_path""/patches"
-  $jinja2_cmd --format yaml \
-              -o "$ki_etc_kubeadm_path""/patches/kubeletconfiguration+merge.yaml" \
-              "$SCRIPT_DIR_PATH"/templates/kubeadm-kubelet-config.yml.j2 \
-              "$vars_path"
 
   return 0
 }
@@ -160,29 +129,29 @@ convert_into_knn() {
 
 require_kubelet_not_enabled() {
   local result
-  result=$("$ki_opt_scripts_path"/systemctl.sh is-enabled kubelet)
+  result=$("$ki_env_scripts_path"/systemctl.sh is-enabled kubelet)
 
   [[ $result = true ]] && die "[ERROR] Kubelet already enabled"
 
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

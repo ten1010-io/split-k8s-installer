@@ -1,0 +1,15 @@
+[Unit]
+Description=Create MIG cap nodes and generate CDI spec before containerd
+After=nvidia-persistenced.service
+Before=containerd.service kubelet.service
+ConditionPathExists=/usr/bin/nvidia-ctk
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=180
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do nvidia-smi -L >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1'
+ExecStart=/usr/local/bin/nvidia-cdi-bootstrap.sh
+
+[Install]
+WantedBy=multi-user.target

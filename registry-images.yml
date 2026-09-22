@@ -1,0 +1,20 @@
+registry_image: docker.io/library/registry:2.8
+registries:
+  - name: ki-cp-k8s-registry
+    images:
+      - registry.k8s.io/kube-apiserver:v1.35.4
+      - registry.k8s.io/kube-controller-manager:v1.35.4
+      - registry.k8s.io/kube-scheduler:v1.35.4
+      - registry.k8s.io/kube-proxy:v1.35.4
+      - registry.k8s.io/coredns/coredns:v1.13.1
+      - registry.k8s.io/pause:3.10.1
+      - registry.k8s.io/etcd:3.6.6-0
+      - quay.io/cilium/cilium:v1.19.2
+      - quay.io/cilium/operator-generic:v1.19.2
+      - quay.io/cilium/cilium-envoy:v1.35.9-1773656288-7b052e66eb2cfc5ac130ce0a5be66202a10d83be
+      - quay.io/cilium/hubble-relay:v1.19.2
+      - quay.io/cilium/hubble-ui-backend:v0.13.3
+      - quay.io/cilium/hubble-ui:v0.13.3
+    mappings:
+      - from: registry.k8s.io/coredns/coredns:v1.12.1
+        to: coredns:v1.12.1

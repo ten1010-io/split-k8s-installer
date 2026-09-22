@@ -1,6 +1,6 @@
 services:
   bind9:
-    image: {{ ki_cp_dns_server_image }}
+    image: ubuntu/bind9:9.18-22.04_beta
     ports:
       - 53:53/udp
     volumes:

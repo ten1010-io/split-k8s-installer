@@ -1,0 +1,39 @@
+- import_playbook: tasks/check-ki-env-setup.yml
+
+- import_playbook: tasks/preflight-playbook.yml
+  vars:
+    playbook: "setup-cluster"
+
+- import_playbook: tasks/gather-facts.yml
+
+- import_playbook: tasks/validate-hostvars.yml
+
+- import_playbook: tasks/setup-vars-file.yml
+
+- import_playbook: tasks/check-node-state.yml
+
+- import_playbook: tasks/init-pki.yml
+
+- import_playbook: tasks/setup-ki-ca-crt.yml
+
+- import_playbook: tasks/install-packages.yml
+
+- import_playbook: tasks/install-programs.yml
+
+- import_playbook: tasks/setup-containerd.yml
+
+- import_playbook: tasks/setup-nvidia-cdi.yml
+
+- import_playbook: tasks/setup-docker.yml
+
+- import_playbook: tasks/init-ki-cp.yml
+
+- import_playbook: tasks/setup-all-node-resolv-conf.yml
+
+- import_playbook: tasks/setup-ntp-client.yml
+
+- import_playbook: tasks/init-k8s-cluster.yml
+
+- import_playbook: tasks/configure-kubelet.yml
+
+- import_playbook: tasks/reset-vars-file.yml

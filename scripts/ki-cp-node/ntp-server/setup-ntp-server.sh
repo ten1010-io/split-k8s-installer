@@ -74,10 +74,10 @@ parse_params "$@"
 
 SVC_NAME=ki-cp-ntp-server
 
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
@@ -89,10 +89,10 @@ etc_svc_root_path=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   ki_etc_services_path=$($yq_cmd '.ki_etc_services_path' < "$vars_path")
   ki_tmp_root_path=$($yq_cmd '.ki_tmp_root_path' < "$vars_path")
@@ -100,17 +100,12 @@ main() {
   etc_svc_root_path="$ki_etc_services_path"/$SVC_NAME
   [[ $update = "false" ]] && require_not_setup $SVC_NAME
 
-  docker load -i "$ki_opt_bundle_path"/ki-cp-service-images/$SVC_NAME.tar
+  docker load -i "$ki_env_bin_path"/images/ntp/*.tar
 
   mkdir -p "$etc_svc_root_path"
-  local rendered_before
-  rendered_before=$(checksum_of_directory "$etc_svc_root_path")
   create_compose_yml_file
-  local rendered_after
-  rendered_after=$(checksum_of_directory "$etc_svc_root_path")
 
-  [[ $update = "true" && $(service_exists $SVC_NAME) = "true" && $rendered_after != "$rendered_before" ]] &&
-    docker compose -f "$etc_svc_root_path/compose.yml" down
+  [[ $update = "true" && $(service_exists $SVC_NAME) = "true" ]] && docker compose -f "$etc_svc_root_path/compose.yml" down
   docker compose -f "$etc_svc_root_path/compose.yml" up -d
 
   return 0
@@ -130,23 +125,8 @@ create_compose_yml_file() {
   tmp_file_path="$ki_tmp_root_path"/tmp-templates-vars.yml
   touch "$tmp_file_path"
   $yq_cmd -i ".ntp_servers = \"$ntp_servers\"" "$tmp_file_path"
-  $yq_cmd -i ".ki_cp_ntp_server_image = load(\"$vars_path\").ki_cp_ntp_server_image" "$tmp_file_path"
   $jinja2_cmd --format yaml -o "$etc_svc_root_path""/compose.yml" "$SCRIPT_DIR_PATH"/templates/compose.yml.j2 "$tmp_file_path"
   rm "$tmp_file_path"
-}
-
-# What the setup rendered, so that a run which changes nothing can leave the
-# container where it is. compose notices a change to compose.yml by itself, but
-# everything else here reaches the service as a bind mount and it has no way to
-# know, which is why the service was taken down on every run whether or not
-# there was anything new to read
-checksum_of_directory() {
-  local path=$1
-
-  [[ ! -d $path ]] && { echo "absent"; return 0; }
-  find "$path" -type f -exec md5sum {} + | sort | md5sum
-
-  return 0
 }
 
 service_exists() {
@@ -167,22 +147,22 @@ require_not_setup() {
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

@@ -69,107 +69,27 @@ parse_params "$@"
 
 # --- End of CLI template ---
 
-# Network interfaces and state directories left behind by CNI plugins.
-# Kept as an explicit list since a CNI managed interface can not be told apart
-# from an operator managed one at runtime.
-CNI_LINK_NAMES=(
-  cni0
-  flannel.1
-  flannel-v6.1
-  kube-ipvs0
-  kube-bridge
-  vxlan.calico
-  vxlan-v6.calico
-  tunl0
-  cilium_host
-  cilium_net
-  cilium_vxlan
-  antrea-gw0
-  weave
-  datapath
-)
-
-CNI_STATE_PATHS=(
-  /etc/cni/net.d
-  /var/lib/cni
-  /var/lib/calico
-  /var/lib/cilium
-  /var/lib/weave
-  /var/run/flannel
-  /var/run/calico
-  /var/run/cilium
-)
-
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
-  delete_cni_links
-  delete_cni_state_paths
+  [[ $(link_exists cni0) = "true" ]] && ip link del cni0
+  rm -rf /etc/cni/net.d
+  [[ $(link_exists flannel.1) = "true" ]] && ip link del flannel.1
+  rm -rf /var/run/flannel
 
-  "$ki_opt_scripts_path/flush-iptables.sh"
-
-  return 0
-}
-
-delete_cni_links() {
-  local name
-
-  for name in "${CNI_LINK_NAMES[@]}"; do
-    if [[ $(link_exists "$name") = "true" ]]; then
-      # Best effort. some interfaces, such as tunl0, are provided by a kernel
-      # module and can not be deleted
-      ip link del "$name" || msg "[WARN] Failed to delete network interface[\"$name\"]"
-    fi
-  done
-
-  return 0
-}
-
-delete_cni_state_paths() {
-  local path
-  local real_path
-  local mount_point
-
-  for path in "${CNI_STATE_PATHS[@]}"; do
-    # /var/run is a symlink to /run on the supported distributions, so resolve
-    # the path before comparing it against mount points
-    real_path=$(readlink -f "$path" 2>/dev/null || echo "$path")
-    if [[ ! -e $real_path ]]; then
-      continue
-    fi
-
-    # Some CNI plugins, such as cilium, mount a filesystem below their state
-    # directory. its contents can not be removed, so unmount it first. the
-    # deepest mount point comes first
-    while read -r mount_point; do
-      if [[ -n $mount_point ]]; then
-        umount "$mount_point" || msg "[WARN] Failed to unmount[\"$mount_point\"]"
-      fi
-    done < <(list_mount_points_under "$real_path")
-
-    # Best effort. a mount point that could not be unmounted keeps its contents
-    rm -rf "$real_path" || msg "[WARN] Failed to delete directory[\"$real_path\"]"
-  done
-
-  return 0
-}
-
-list_mount_points_under() {
-  local path=$1
-
-  findmnt -rno TARGET | awk -v p="$path" '$0 == p || index($0, p "/") == 1' | sort -r
+  "$ki_env_scripts_path/flush-iptables.sh"
 
   return 0
 }
@@ -184,22 +104,22 @@ link_exists() {
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

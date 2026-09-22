@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-main-force-push.sh\"",
+            "timeout": 10,
+            "statusMessage": "checking git push guardrail"
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-pr-metadata.sh\"",
+            "timeout": 10,
+            "statusMessage": "checking PR metadata convention"
+          }
+        ]
+      }
+    ]
+  }
+}

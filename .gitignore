@@ -24,14 +24,26 @@ build/
 .metadata/
 .factorypath
 
-/bundle/
-/bundle-*.tgz
+/bin/
+/tmp/
 
-### Claude ###
-.claude/
+### Claude Code ###
+# 개인 Claude 상태(settings.local.json, 캐시 등)는 무시하되,
+# 팀 공유 설정/훅(가드레일)은 커밋 추적한다.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 
-### k8s-installer ###
-# What a cluster keeps in its user registry is decided by whoever runs it, so
-# neither the list nor the archive built from it belongs to a release
-/ki-cp-user-registry-images.yml
-/ki-cp-user-registry-images.tgz
+### Vim ###
+*.swp
+*.swo
+
+### Mac OS ###
+.DS_Store
+
+### project-controller 인증서 생성물 (자동 생성, 커밋 금지) ###
+# 버전별 경로/중첩 차이를 모두 포괄 (4_1_x, 4_3_x, 4_7_projectcontroller 등)
+scripts/ki-cp-node/services/java/**/cert/output/
+scripts/ki-cp-node/services/java/**/tls.p12
+
+.omc/

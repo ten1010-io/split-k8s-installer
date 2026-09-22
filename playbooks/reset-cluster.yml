@@ -1,0 +1,43 @@
+- import_playbook: tasks/check-ki-env-setup.yml
+
+- import_playbook: tasks/preflight-playbook.yml
+  vars:
+    playbook: "reset-cluster"
+
+- import_playbook: tasks/gather-facts.yml
+
+- import_playbook: tasks/validate-hostvars.yml
+
+- import_playbook: tasks/setup-vars-file.yml
+
+- import_playbook: tasks/check-node-state.yml
+
+- import_playbook: tasks/charts/aipub/reset-ha-service.yml
+
+- import_playbook: tasks/reset-all-node-charts.yml
+
+- import_playbook: tasks/reset-k8s-cluster.yml
+
+- import_playbook: tasks/charts/aipub/delete-local-pv-directory.yml
+
+- import_playbook: tasks/reset-ntp-client.yml
+
+- import_playbook: tasks/reset-resolv-conf.yml
+
+- import_playbook: tasks/reset-ki-cp.yml
+
+- import_playbook: tasks/reset-docker.yml
+
+- import_playbook: tasks/reset-nvidia-cdi.yml
+
+- import_playbook: tasks/reset-containerd.yml
+
+- import_playbook: tasks/uninstall-programs.yml
+
+- import_playbook: tasks/uninstall-packages.yml
+
+- import_playbook: tasks/reset-ki-ca-crt.yml
+
+- import_playbook: tasks/reset-pki.yml
+
+- import_playbook: tasks/reset-vars-file.yml

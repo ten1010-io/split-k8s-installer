@@ -1,9 +1,0 @@
-- import_playbook: tasks/begin-playbook.yml
-  vars:
-    playbook: "backup-etcd"
-
-- import_playbook: tasks/prepare-vars.yml
-
-- import_playbook: tasks/backup-etcd.yml
-
-- import_playbook: tasks/reset-vars-file.yml
