@@ -74,10 +74,10 @@ parse_params "$@"
 
 SVC_NAME=ki-cp-dns-server
 
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
@@ -94,10 +94,10 @@ svc_root_path=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   ki_etc_services_path=$($yq_cmd '.ki_etc_services_path' < "$vars_path")
   ki_tmp_root_path=$($yq_cmd .ki_tmp_root_path < "$vars_path")
@@ -113,14 +113,9 @@ main() {
 
   disable_resolved
 
-  docker load -i "$ki_opt_bundle_path"/ki-cp-service-images/$SVC_NAME.tar
+  docker load -i "$ki_env_bin_path"/images/bind9/*.tar
 
   mkdir -p "$svc_root_path"
-
-  local rendered_before
-  local container_id_before
-  rendered_before=$(checksum_of_directory "$svc_root_path")
-  container_id_before=$(get_container_id)
   $jinja2_cmd --format yaml -o "$svc_root_path""/compose.yml" "$SCRIPT_DIR_PATH"/templates/compose.yml.j2 "$vars_path"
   $jinja2_cmd --format yaml -o "$svc_root_path""/named.conf.local" "$SCRIPT_DIR_PATH"/templates/named.conf.local.j2 "$vars_path"
   create_named_conf_options_file
@@ -129,30 +124,11 @@ main() {
     create_internal_network_extra_zone_db_file
   fi
 
-  local rendered_changed="false"
-  [[ $(checksum_of_directory "$svc_root_path") != "$rendered_before" ]] && rendered_changed="true"
-
-  # No down first. Recreating the container takes the dns server of the node
-  # away for a second and a half, and every node of the cluster carries the vip
-  # as its only nameserver, so on the node holding the vip that second and a
-  # half is the whole cluster unable to resolve a name. compose replaces the
-  # container by itself when compose.yml changed, which is the one change that
-  # needs a replacement
+  [[ $update = "true" && $(service_exists $SVC_NAME) = "true" ]] && docker compose -f "$svc_root_path/compose.yml" down
   docker compose -f "$svc_root_path/compose.yml" up -d
 
-  # A container compose replaced has read the new configuration already. One it
-  # left alone has not, since named.conf and the zone files reach it as a bind
-  # mount and nothing told it to look again
-  [[ $rendered_changed = "true" && -n $container_id_before && $container_id_before = $(get_container_id) ]] &&
-    reload
-
-  # Restarting docker restarts every container of the node, the apiserver lb and
-  # the keepalived holding the vip among them, so the daemon is left running
-  # unless it really has something new to read
-  local daemon_json_before
-  daemon_json_before=$(checksum_of /etc/docker/daemon.json)
   $yq_cmd -i -o json -P '.dns = ["172.17.0.1"]' /etc/docker/daemon.json
-  [[ $(checksum_of /etc/docker/daemon.json) != "$daemon_json_before" ]] && systemctl restart docker
+  systemctl restart docker
 
   return 0
 }
@@ -241,45 +217,6 @@ get_ki_cp_master_node_ip() {
   $yq_cmd '.internal_network_hosts.'"$ih"'.interfaces[0].ip' < "$vars_path"
 }
 
-# SIGHUP is what named takes as a reload of its configuration and of its zones.
-# The container stays up and the socket stays open, so a query arriving while it
-# rereads is answered rather than refused
-reload() {
-  docker compose -f "$svc_root_path/compose.yml" kill -s HUP bind9
-
-  return 0
-}
-
-get_container_id() {
-  [[ -f "$svc_root_path/compose.yml" ]] || return 0
-  docker compose -f "$svc_root_path/compose.yml" ps -q bind9 2>/dev/null || true
-
-  return 0
-}
-
-checksum_of() {
-  local path=$1
-
-  [[ -f $path ]] || { echo "absent"; return 0; }
-  md5sum < "$path"
-
-  return 0
-}
-
-# What the setup rendered, so that a run which changes nothing can leave the
-# container where it is. compose notices a change to compose.yml by itself, but
-# everything else here reaches the service as a bind mount and it has no way to
-# know, which is why the service was taken down on every run whether or not
-# there was anything new to read
-checksum_of_directory() {
-  local path=$1
-
-  [[ ! -d $path ]] && { echo "absent"; return 0; }
-  find "$path" -type f -exec md5sum {} + | sort | md5sum
-
-  return 0
-}
-
 service_exists() {
   local svc_name=$1
 
@@ -300,28 +237,28 @@ require_not_setup() {
 
 disable_resolved() {
   local result
-  result=$("$ki_opt_scripts_path"/systemctl.sh exists "systemd-resolved")
-  [[ $result = true ]] && "$ki_opt_scripts_path"/systemctl.sh disable systemd-resolved
+  result=$("$ki_env_scripts_path"/systemctl.sh exists "systemd-resolved")
+  [[ $result = true ]] && "$ki_env_scripts_path"/systemctl.sh disable systemd-resolved
 
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

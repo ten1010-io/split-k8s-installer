@@ -1,9 +1,0 @@
-- import_playbook: tasks/begin-playbook.yml
-  vars:
-    playbook: "check-user-registry"
-
-- import_playbook: tasks/prepare-vars.yml
-
-- import_playbook: tasks/check-user-registry.yml
-
-- import_playbook: tasks/reset-vars-file.yml

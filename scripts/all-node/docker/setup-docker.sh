@@ -4,19 +4,17 @@ SCRIPT_DIR_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
 
 print_usage() {
   cat <<EOF
-Usage: $(basename "${BASH_SOURCE[0]}") [-h] [-v] [--vars-path path] [--update]
+Usage: $(basename "${BASH_SOURCE[0]}") [-h] [-v] [--vars-path path]
 Available options:
 -h, --help      Print this help and exit
 -v, --verbose   Print script debug info
 --vars-path     File path
---update
 EOF
   exit
 }
 
 parse_params() {
   vars_path=""
-  update="false"
 
   while :; do
     case "${1-}" in
@@ -28,7 +26,6 @@ parse_params() {
       vars_path="${2-}"
       shift
       ;;
-    --update) update="true" ;;
     -?*) die "[ERROR] Unknown option: $1" ;;
     *) break ;;
     esac
@@ -72,13 +69,10 @@ parse_params "$@"
 
 # --- End of CLI template ---
 
-DROP_IN_DIR_PATH=/etc/systemd/system/docker.service.d
-DROP_IN_PATH="$DROP_IN_DIR_PATH"/override.conf
-
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
@@ -87,59 +81,26 @@ nvidia_gpu=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   nvidia_gpu=$($yq_cmd '.nvidia_gpu' < "$vars_path")
 
-  [[ $update = "false" ]] && require_docker_not_enabled
+  require_docker_not_enabled
 
   [[ $nvidia_gpu = "true" ]] && require_nvidia_gpu_exists
 
   $jinja2_cmd --format yaml -o "/etc/docker/daemon.json" "$SCRIPT_DIR_PATH"/templates/daemon.json.j2 "$vars_path"
-  create_drop_in_file
-
-  # Restarting docker restarts every container of the node, so an update is meant to
-  # run against a node that has been drained first. Note that a changed
-  # docker_root_path also leaves the images behind at the old path, which the ki cp
-  # services of the node need to be set up again to get back. A node that does not
-  # have docker enabled yet is set up rather than restarted, so that an update which
-  # failed part way through the cluster can simply be repeated
-  if [[ $update = "true" && $("$ki_opt_scripts_path"/systemctl.sh is-enabled docker) = "true" ]]; then
-    "$ki_opt_scripts_path"/systemctl.sh restart docker
-  else
-    "$ki_opt_scripts_path"/systemctl.sh enable docker
-  fi
-
-  return 0
-}
-
-# docker.service comes with Restart=always, but also with a start limit of 3
-# attempts and RestartSec=2, which is six seconds of grace. Anything dockerd
-# waits on that is not ready yet, containerd among them, spends that budget and
-# leaves the unit failed for good, with the dns server, the ntp server, the
-# apiserver lb and the registry of a ki cp node inside it
-#
-# The window is widened rather than removed. Thirty attempts over five minutes
-# covers a dependency that is merely slow, while a dockerd that can not start at
-# all still ends up in failed, where it can be seen, instead of restarting out of
-# sight forever
-#
-# A drop-in rather than an edit of the unit, so that it survives a docker package
-# upgrade, which overwrites everything under /usr/lib
-create_drop_in_file() {
-  mkdir -p "$DROP_IN_DIR_PATH"
-  cp -f "$SCRIPT_DIR_PATH"/templates/override.conf "$DROP_IN_PATH"
-  "$ki_opt_scripts_path"/systemctl.sh reload
+  "$ki_env_scripts_path"/systemctl.sh enable docker
 
   return 0
 }
 
 require_nvidia_gpu_exists() {
   local result
-  result=$("$ki_opt_scripts_path"/preflight/nvidia-gpu-exists.sh)
+  result=$("$ki_env_scripts_path"/preflight/nvidia-gpu-exists.sh)
 
   [[ $result = "false" ]] && die "[ERROR] Nvidia gpu not detected"
 
@@ -148,29 +109,29 @@ require_nvidia_gpu_exists() {
 
 require_docker_not_enabled() {
   local result
-  result=$("$ki_opt_scripts_path"/systemctl.sh is-enabled docker)
+  result=$("$ki_env_scripts_path"/systemctl.sh is-enabled docker)
 
   [[ $result = true ]] && die "[ERROR] Docker already enabled"
 
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

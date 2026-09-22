@@ -1,51 +1,13 @@
 vrrp_script check_node {
   script "/etc/keepalived/check_node.sh"
   interval 3
-  # No weight on purpose. A tracked script that carries one only lowers the
-  # priority of the node, and a lower priority is something a peer acts on by
-  # preempting, which nopreempt below forbids: the two together left the vip on
-  # a node whose load balancer was stopped for fifty seconds with every request
-  # refused. Without a weight a failing script puts the instance into FAULT, the
-  # node stops advertising at all, and the peer takes over because nobody is
-  # holding the address rather than because it outranks the holder. That also
-  # retires the question of whether the priorities are far enough apart
-  #
-  # Thirty seconds before the vip moves, which is slow for an outage and is
-  # meant to be. Moving it kills every connection through it, on both nodes, and
-  # the load balancer is restarted whenever the set of control plane nodes
-  # changes. A shorter fall would turn each of those restarts into an outage
+  weight -2
   fall 10
-  # Two successes before a node may hold the address again, which with the
-  # interval above is six seconds of a node that has just been restarted being
-  # ineligible. That is what makes the address walk forward rather than settle
-  # when the ki cp nodes are restarted one after another, and it is the first
-  # thing to weigh against taking the address off a node on purpose before
-  # working on it.
-  #
-  # Measured on the three node cluster: a handover costs 0.6 seconds with no vip
-  # anywhere, so moving it away and back is 1.2 seconds without an apiserver, a
-  # dns server or a registry, while the work such a move would cover is a
-  # registry stopped for 2.0 seconds and nothing else touched. Two seconds of
-  # one service is cheaper than one and a bit of all three, which is why
-  # prune-user-registry.yml, prune-k8s-registry.yml and setup-k8s-registry.sh
-  # stop the registry of the node holding the vip rather than move the vip
   rise 2
 }
 
 vrrp_instance VI_1 {
-  # BACKUP on every node, including the one the priorities mean to win. That is
-  # what nopreempt needs: keepalived ignores it on an instance that starts as
-  # MASTER. With every node starting as BACKUP the highest priority one takes
-  # the vip a few seconds after the first of them comes up, which is the same
-  # node it would have been
-  state BACKUP
-  # A node that has just recovered does not take the vip back. Taking it back
-  # kills every connection the node that is serving has, and there is nothing to
-  # win by moving it: the node holding it is serving. Without this a load
-  # balancer that came back moved the vip a second time fifteen seconds later,
-  # so one failure cost two outages instead of one. The priorities still decide
-  # who wins when nobody holds it
-  nopreempt
+  state {{ state }}
   interface {{ interface }}
   unicast_src_ip {{ unicast_src_ip }}
   priority {{ priority }}

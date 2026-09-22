@@ -69,10 +69,10 @@ parse_params "$@"
 
 # --- End of CLI template ---
 
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
@@ -86,10 +86,10 @@ node_name=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   k8s_cp=$($yq_cmd '.k8s_cp' < "$vars_path")
   ki_etc_kubeadm_path=$($yq_cmd '.ki_etc_kubeadm_path' < "$vars_path")
@@ -114,7 +114,6 @@ main() {
               -o "$ki_etc_kubeadm_path""/kubeadm-join-config.yml" \
               "$SCRIPT_DIR_PATH"/templates/kubeadm-join-config.yml.j2 \
               "$vars_path"
-  create_kubelet_config_patch_file
   kubeadm join --config "$ki_etc_kubeadm_path""/kubeadm-join-config.yml"
 
   if [[ $k8s_cp == "true" ]]; then
@@ -122,19 +121,6 @@ main() {
     cp -f /etc/kubernetes/admin.conf $HOME/.kube/config
     chown $(id -u):$(id -g) $HOME/.kube/config
   fi
-
-  return 0
-}
-
-# This node downloads the cluster wide KubeletConfiguration from the
-# kubelet-config ConfigMap. The reservations are calculated per node, so the
-# baseline is patched with the values calculated for the capacity of this node
-create_kubelet_config_patch_file() {
-  mkdir -p "$ki_etc_kubeadm_path""/patches"
-  $jinja2_cmd --format yaml \
-              -o "$ki_etc_kubeadm_path""/patches/kubeletconfiguration+merge.yaml" \
-              "$SCRIPT_DIR_PATH"/templates/kubeadm-kubelet-config.yml.j2 \
-              "$vars_path"
 
   return 0
 }
@@ -149,29 +135,29 @@ convert_into_knn() {
 
 require_kubelet_not_enabled() {
   local result
-  result=$("$ki_opt_scripts_path"/systemctl.sh is-enabled kubelet)
+  result=$("$ki_env_scripts_path"/systemctl.sh is-enabled kubelet)
 
   [[ $result = true ]] && die "[ERROR] Kubelet already enabled"
 
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

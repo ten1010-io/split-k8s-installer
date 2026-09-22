@@ -72,16 +72,12 @@ parse_params "$@"
 UBUNTU2204_SUPPORTED_MINOR_VERSION=5
 UBUNTU2404_SUPPORTED_MINOR_VERSION=4
 RHEL8_SUPPORTED_MINOR_VERSION=10
+RHEL9_SUPPORTED_MINOR_VERSION=7
 
-# Fixed by containerd rather than configurable. A node that needs it off the root
-# filesystem bind mounts it onto the ephemeral storage device instead, and
-# reset-ephemeral-storage.sh has taken that apart before this script runs
-CONTAINERD_ROOT_PATH=/var/lib/containerd
-
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 
@@ -91,16 +87,18 @@ os_major_version=""
 os_minor_version=""
 
 docker_root_path=""
+containerd_root_path=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
   get_os_version
 
   docker_root_path=$($yq_cmd '.docker_root_path' < "$vars_path")
+  containerd_root_path=$($yq_cmd '.containerd_root_path' < "$vars_path")
 
   if [[ $os_distribution = "ubuntu" && $os_major_version = "22.04" && $os_minor_version -le "$UBUNTU2204_SUPPORTED_MINOR_VERSION" ]]; then
     ubuntu2204_uninstall
@@ -117,11 +115,18 @@ main() {
     exit 0
   fi
 
+  if [[ $os_distribution = "rhel" && $os_major_version = "9" && $os_minor_version -le "$RHEL9_SUPPORTED_MINOR_VERSION" ]]; then
+    rhel9_uninstall
+    exit 0
+  fi
+
   die "[ERROR] OS not supported\n$os_info"
 }
 
 ubuntu2204_uninstall() {
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists kubelet) = "true" ]]; then
+  rm -f /etc/crictl.yaml
+
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists kubelet) = "true" ]]; then
     apt remove -y --purge --allow-change-held-packages \
       kubeadm \
       kubectl \
@@ -130,7 +135,7 @@ ubuntu2204_uninstall() {
       kubernetes-cni
   fi
 
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists docker) = "true" ]]; then
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists docker) = "true" ]]; then
     if dpkg-query -W nvidia-container-toolkit &>/dev/null; then
       apt remove -y --purge --allow-change-held-packages \
         nvidia-container-toolkit \
@@ -148,11 +153,11 @@ ubuntu2204_uninstall() {
   rm -f /etc/docker/daemon.json
   rm -rf "$docker_root_path"
 
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists containerd) = "true" ]]; then
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists containerd) = "true" ]]; then
     apt remove -y --purge --allow-change-held-packages \
       containerd.io
   fi
-  rm -rf "$CONTAINERD_ROOT_PATH"
+  rm -rf "$containerd_root_path"
 
   systemctl daemon-reload
 
@@ -160,7 +165,9 @@ ubuntu2204_uninstall() {
 }
 
 ubuntu2404_uninstall() {
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists kubelet) = "true" ]]; then
+  rm -f /etc/crictl.yaml
+
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists kubelet) = "true" ]]; then
     apt remove -y --purge --allow-change-held-packages \
       kubeadm \
       kubectl \
@@ -169,7 +176,7 @@ ubuntu2404_uninstall() {
       kubernetes-cni
   fi
 
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists docker) = "true" ]]; then
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists docker) = "true" ]]; then
     if dpkg-query -W nvidia-container-toolkit &>/dev/null; then
       apt remove -y --purge --allow-change-held-packages \
         nvidia-container-toolkit \
@@ -187,11 +194,11 @@ ubuntu2404_uninstall() {
   rm -f /etc/docker/daemon.json
   rm -rf "$docker_root_path"
 
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists containerd) = "true" ]]; then
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists containerd) = "true" ]]; then
     apt remove -y --purge --allow-change-held-packages \
       containerd.io
   fi
-  rm -rf "$CONTAINERD_ROOT_PATH"
+  rm -rf "$containerd_root_path"
 
   systemctl daemon-reload
 
@@ -199,7 +206,9 @@ ubuntu2404_uninstall() {
 }
 
 rhel8_uninstall() {
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists kubelet) = "true" ]]; then
+  rm -f /etc/crictl.yaml
+
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists kubelet) = "true" ]]; then
     yum erase -y --disableplugin subscription-manager \
       kubeadm \
       kubectl \
@@ -208,7 +217,7 @@ rhel8_uninstall() {
       kubernetes-cni
   fi
 
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists docker) = "true" ]]; then
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists docker) = "true" ]]; then
     if rpm -q nvidia-container-toolkit &>/dev/null; then
       yum erase -y --disableplugin subscription-manager \
         nvidia-container-toolkit \
@@ -226,41 +235,80 @@ rhel8_uninstall() {
   rm -f /etc/docker/daemon.json
   rm -rf "$docker_root_path"
 
-  if [[ $("$ki_opt_scripts_path/systemctl.sh" exists containerd) = "true" ]]; then
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists containerd) = "true" ]]; then
     yum erase -y --disableplugin subscription-manager \
       containerd.io
   fi
-  rm -rf "$CONTAINERD_ROOT_PATH"
+  rm -rf "$containerd_root_path"
 
   systemctl daemon-reload
 
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+rhel9_uninstall() {
+  rm -f /etc/crictl.yaml
+
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists kubelet) = "true" ]]; then
+    yum erase -y --disableplugin subscription-manager \
+      kubeadm \
+      kubectl \
+      kubelet \
+      cri-tools \
+      kubernetes-cni
+  fi
+
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists docker) = "true" ]]; then
+    yum erase -y --disableplugin subscription-manager \
+      nvidia-container-toolkit \
+      nvidia-container-toolkit-base \
+      libnvidia-container1 \
+      libnvidia-container-tools
+
+    yum erase -y --disableplugin subscription-manager \
+      docker-ce \
+      docker-ce-cli \
+      docker-buildx-plugin \
+      docker-compose-plugin
+  fi
+  rm -f /etc/docker/daemon.json
+  rm -rf "$docker_root_path"
+
+  if [[ $("$ki_env_scripts_path/systemctl.sh" exists containerd) = "true" ]]; then
+    yum erase -y --disableplugin subscription-manager \
+      containerd.io
+  fi
+  rm -rf "$containerd_root_path"
+
+  systemctl daemon-reload
+
+  return 0
+}
+
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
 get_os_version() {
-  os_info=$("$ki_opt_scripts_path"/preflight/get-os-info.sh)
+  os_info=$("$ki_env_scripts_path"/preflight/get-os-info.sh)
 
   os_distribution=$($yq_cmd .distribution <<< "$os_info")
   os_major_version=$($yq_cmd .major_version <<< "$os_info")
   os_minor_version=$($yq_cmd .minor_version <<< "$os_info")
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

@@ -1,0 +1,58 @@
+name: PR Milestone
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+
+jobs:
+  milestone:
+    # PR 본문 "## 🚀 Release Version" 의 버전(v5.1.0)과 같은 제목의 열린 마일스톤이 있을 때만 연동.
+    # 대상은 develop 로 향하는 모든 PR — 릴리스 PR(→ main) 은 제외.
+    # (브랜치명은 판정에 쓰지 않는다. 급할 때 명명 규칙을 안 지킨 PR 도 마일스톤은 붙어야 한다.)
+    #
+    # 참고: 이 저장소는 gh pr create 시점에 --milestone 을 강제하는 로컬 훅
+    # (.claude/hooks/require-pr-metadata.sh)이 이미 있지만, 그건 Claude Code로
+    # 만든 PR에만 적용된다. GitHub UI 등 다른 경로로 만들어져 마일스톤이 비어있는
+    # PR을 위한 보완 장치로 이 워크플로우를 추가한다.
+    if: ${{ github.event.pull_request.base.ref == 'develop' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release Version → 마일스톤 연동
+        env:
+          GH_TOKEN: ${{ secrets.SECRET }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BODY: ${{ github.event.pull_request.body }}
+          CURRENT: ${{ github.event.pull_request.milestone.title }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$CURRENT" ]; then
+            echo "이미 마일스톤($CURRENT) 지정됨 → 스킵"; exit 0
+          fi
+
+          # Release Version 섹션 본문만 취한다. 인용(>) 줄은 템플릿 안내문(예: `v5.1.0`) 이라 제외 —
+          # 안 지우면 작성자가 버전을 안 적어도 예시 버전이 잡힌다.
+          version="$(printf '%s' "$BODY" | tr -d '\r' \
+            | awk '/^##[[:space:]].*Release Version/{f=1;next} /^##[[:space:]]/{f=0} f' \
+            | grep -v '^[[:space:]]*>' \
+            | grep -oiE 'v?[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || true)"
+
+          if [ -z "$version" ]; then
+            echo "Release Version 미기재 → 마일스톤 스킵"; exit 0
+          fi
+          case "$version" in v*|V*) ;; *) version="v$version" ;; esac
+
+          title="$(gh api "repos/$GH_REPO/milestones?state=open&per_page=100" \
+            | jq -r --arg v "$version" '.[] | select(.title == $v) | .title' | head -1)"
+
+          if [ -z "$title" ]; then
+            echo "열린 마일스톤에 '$version' 없음 → 스킵"; exit 0
+          fi
+
+          gh pr edit "$PR" --milestone "$title" && echo "마일스톤: $title"

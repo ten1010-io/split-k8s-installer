@@ -89,11 +89,6 @@ main() {
       disable "${args[1]}"
       exit 0
     ;;
-    restart)
-      require_args_length 2
-      restart "${args[1]}"
-      exit 0
-    ;;
     reload)
       require_args_length 1
       reload
@@ -159,15 +154,6 @@ disable() {
 
   systemctl stop "$svc_name"
   systemctl disable "$svc_name"
-
-  return 0
-}
-
-restart() {
-  local svc_name
-  svc_name=$1
-
-  systemctl restart "$svc_name"
 
   return 0
 }

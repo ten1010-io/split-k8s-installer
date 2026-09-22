@@ -74,10 +74,10 @@ parse_params "$@"
 
 SVC_NAME=ki-cp-k8s-cp-lb
 
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
@@ -88,16 +88,13 @@ target_node=""
 target_node_op=""
 
 svc_root_path=""
-admin_socket_path=""
-server_state_path=""
-stats_password_path=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
   ki_etc_services_path=$($yq_cmd '.ki_etc_services_path' < "$vars_path")
   ki_tmp_root_path=$($yq_cmd '.ki_tmp_root_path' < "$vars_path")
@@ -107,94 +104,14 @@ main() {
   svc_root_path="$ki_etc_services_path"/$SVC_NAME
   [[ $update = "false" ]] && require_not_setup $SVC_NAME
 
-  docker load -i "$ki_opt_bundle_path"/ki-cp-service-images/$SVC_NAME.tar
-
-  admin_socket_path=$($yq_cmd '.ki_cp_k8s_cp_lb_admin_socket_path' < "$vars_path")
-  server_state_path=$($yq_cmd '.ki_cp_k8s_cp_lb_server_state_path' < "$vars_path")
-  stats_password_path=$($yq_cmd '.ki_cp_k8s_cp_lb_stats_password_path' < "$vars_path")
+  docker load -i "$ki_env_bin_path"/images/haproxy/*.tar
 
   mkdir -p "$svc_root_path"
-
-  local haproxy_cfg_before
-  local container_id_before
-  haproxy_cfg_before=$(checksum_of "$svc_root_path/haproxy.cfg")
-  container_id_before=$(get_container_id)
-
   create_compose_yml_file
   create_haproxy_cfg_file
-  create_stats_password_file
 
-  local haproxy_cfg_changed="false"
-  [[ $(checksum_of "$svc_root_path/haproxy.cfg") != "$haproxy_cfg_before" ]] && haproxy_cfg_changed="true"
-
-  # Before the reload rather than after, since the running load balancer is the
-  # only thing that knows which backends were taken out by hand
-  [[ -n $container_id_before && $haproxy_cfg_changed = "true" ]] && save_server_state
-
-  # No down first. Recreating the container drops every connection through it,
-  # which for a node being added or removed is an outage of the whole control
-  # plane, and up on its own leaves a running container alone
+  [[ $update = "true" && $(service_exists $SVC_NAME) = "true" ]] && docker compose -f "$svc_root_path/compose.yml" down
   docker compose -f "$svc_root_path/compose.yml" up -d
-
-  # A container that compose replaced has read the new configuration already.
-  # One it left alone has not, since the configuration reaches it as a bind
-  # mount and nothing told it to look again
-  [[ $haproxy_cfg_changed = "true" && -n $container_id_before && $container_id_before = $(get_container_id) ]] &&
-    reload
-
-  return 0
-}
-
-# What gather-facts.yml reads before it mints a password, so that the one this
-# cluster is already using survives a run of the playbooks. Readable by root
-# only, since it is the credential of the stats page
-create_stats_password_file() {
-  local password
-  password=$($yq_cmd '.ki_cp_k8s_cp_lb_stats_admin_pw' < "$vars_path")
-
-  (
-    umask 077
-    printf '%s\n' "$password" > "$stats_password_path"
-  )
-
-  return 0
-}
-
-# SIGUSR2 is what the master process of haproxy takes as a reload. It forks a
-# worker on the new configuration, hands it the listeners and leaves the old one
-# to finish what it is holding, so nothing in flight is cut. The container stays
-# up, which is why this is not a restart as far as docker is concerned
-reload() {
-  docker compose -f "$svc_root_path/compose.yml" kill -s USR2 haproxy
-
-  return 0
-}
-
-# Best effort. A load balancer put there by a release that had no admin socket
-# has nothing to ask, and losing which backends were out of rotation is not a
-# reason to refuse the update
-save_server_state() {
-  printf 'show servers state\n' |
-    docker compose -f "$svc_root_path/compose.yml" exec -T haproxy \
-      sh -c "socat stdio '$admin_socket_path' > '$server_state_path'" ||
-    msg "[WARN] Failed to save the state of the backends of the load balancer. they come back as the configuration has them"
-
-  return 0
-}
-
-# Empty before the first setup, when there is no compose file to ask about yet
-get_container_id() {
-  [[ -f "$svc_root_path/compose.yml" ]] || return 0
-  docker compose -f "$svc_root_path/compose.yml" ps -q haproxy 2>/dev/null || true
-
-  return 0
-}
-
-checksum_of() {
-  local path=$1
-
-  [[ -f $path ]] || { echo "absent"; return 0; }
-  md5sum < "$path"
 
   return 0
 }
@@ -206,8 +123,6 @@ create_compose_yml_file() {
   $yq_cmd -i ".ki_cp_k8s_cp_lb_port = load(\"$vars_path\").ki_cp_k8s_cp_lb_port" "$tmp_file_path"
   $yq_cmd -i ".ki_cp_k8s_cp_lb_stats_port = load(\"$vars_path\").ki_cp_k8s_cp_lb_stats_port" "$tmp_file_path"
   $yq_cmd -i ".ki_cp_k8s_cp_lb_stats_admin_pw = load(\"$vars_path\").ki_cp_k8s_cp_lb_stats_admin_pw" "$tmp_file_path"
-  $yq_cmd -i ".lb_bind_ip = load(\"$vars_path\").internal_network_interfaces[0].ip" "$tmp_file_path"
-  $yq_cmd -i ".ki_cp_k8s_cp_lb_image = load(\"$vars_path\").ki_cp_k8s_cp_lb_image" "$tmp_file_path"
   $jinja2_cmd --format yaml -o "$svc_root_path""/compose.yml" "$SCRIPT_DIR_PATH"/templates/compose.yml.j2 "$tmp_file_path"
   rm "$tmp_file_path"
 }
@@ -224,8 +139,6 @@ create_haproxy_cfg_file() {
   $yq_cmd -i ".internal_network_hosts = load(\"$vars_path\").internal_network_hosts" "$tmp_file_path"
   $yq_cmd -i ".k8s_apiserver_port = load(\"$vars_path\").k8s_apiserver_port" "$tmp_file_path"
   $yq_cmd -i ".ki_cp_k8s_cp_lb_stats_port = load(\"$vars_path\").ki_cp_k8s_cp_lb_stats_port" "$tmp_file_path"
-  $yq_cmd -i ".ki_cp_k8s_cp_lb_admin_socket_path = load(\"$vars_path\").ki_cp_k8s_cp_lb_admin_socket_path" "$tmp_file_path"
-  $yq_cmd -i ".ki_cp_k8s_cp_lb_server_state_path = load(\"$vars_path\").ki_cp_k8s_cp_lb_server_state_path" "$tmp_file_path"
   $jinja2_cmd --format yaml -o "$svc_root_path""/haproxy.cfg" "$SCRIPT_DIR_PATH"/templates/haproxy.cfg.j2 "$tmp_file_path"
   rm "$tmp_file_path"
 }
@@ -258,22 +171,22 @@ require_not_setup() {
   return 0
 }
 
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

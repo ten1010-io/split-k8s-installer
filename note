@@ -1,0 +1,13 @@
+
+
+etri
+direct-routing-device: enp1s0
+
+devices: "br0"
+direct-routing-device: "br0"
+
+
+        - --type=agent
+        - --devices=br0                  # 1. 감지할 장치 목록 강제 고정
+        - --direct-routing-device=br0
+        command:

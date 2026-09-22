@@ -69,62 +69,47 @@ parse_params "$@"
 
 # --- End of CLI template ---
 
-DROP_IN_DIR_PATH=/etc/systemd/system/docker.service.d
-DROP_IN_PATH="$DROP_IN_DIR_PATH"/override.conf
-
-ki_opt_root_path=""
-ki_opt_scripts_path=""
-ki_opt_bundle_path=""
-ki_opt_venv_path=""
+ki_env_path=""
+ki_env_scripts_path=""
+ki_env_bin_path=""
+ki_env_ki_venv_path=""
 
 yq_cmd=""
 jinja2_cmd=""
 
 main() {
   require_file_exists "$vars_path"
-  import_ki_opt_vars
+  import_ki_env_vars
   setup_cmd_vars
-  require_directory_exists "$ki_opt_root_path"
-  validate_ki_opt_directory
+  require_directory_exists "$ki_env_path"
+  validate_ki_env_directory
 
-  if [[ $("$ki_opt_scripts_path"/systemctl.sh exists docker) = "true" ]]; then
-    "$ki_opt_scripts_path"/systemctl.sh disable docker
-    "$ki_opt_scripts_path"/systemctl.sh disable docker.socket
+  if [[ $("$ki_env_scripts_path"/systemctl.sh exists docker) = "true" ]]; then
+    "$ki_env_scripts_path"/systemctl.sh disable docker
+    "$ki_env_scripts_path"/systemctl.sh disable docker.socket
     rm -f /etc/docker/daemon.json
   fi
-  delete_drop_in_file
-  "$ki_opt_scripts_path/flush-iptables.sh"
+  "$ki_env_scripts_path/flush-iptables.sh"
 
   return 0
 }
 
-# Taken away whether or not docker is still installed, so that the start limit of
-# the unit is what the package says again. The directory goes as well, so that a
-# node that has been reset keeps no trace of the installer
-delete_drop_in_file() {
-  rm -f "$DROP_IN_PATH"
-  [[ -d $DROP_IN_DIR_PATH ]] && rmdir --ignore-fail-on-non-empty "$DROP_IN_DIR_PATH"
-  "$ki_opt_scripts_path"/systemctl.sh reload
-
-  return 0
-}
-
-import_ki_opt_vars() {
-  ki_opt_root_path=$(grep -oP  "^ki_opt_root_path: \K(.+)" < "$vars_path")
-  ki_opt_scripts_path=$(grep -oP  "^ki_opt_scripts_path: \K(.+)" < "$vars_path")
-  ki_opt_bundle_path=$(grep -oP  "^ki_opt_bundle_path: \K(.+)" < "$vars_path")
-  ki_opt_venv_path=$(grep -oP  "^ki_opt_venv_path: \K(.+)" < "$vars_path")
+import_ki_env_vars() {
+  ki_env_path=$(grep -oP  "^ki_env_path: \K(.+)" < "$vars_path")
+  ki_env_scripts_path=$(grep -oP  "^ki_env_scripts_path: \K(.+)" < "$vars_path")
+  ki_env_bin_path=$(grep -oP  "^ki_env_bin_path: \K(.+)" < "$vars_path")
+  ki_env_ki_venv_path=$(grep -oP  "^ki_env_ki_venv_path: \K(.+)" < "$vars_path")
 }
 
 setup_cmd_vars() {
-  yq_cmd="$ki_opt_bundle_path/bin/yq"
-  jinja2_cmd="$ki_opt_venv_path/bin/jinja2"
+  yq_cmd="$ki_env_bin_path/bin/yq"
+  jinja2_cmd="$ki_env_ki_venv_path/bin/jinja2"
 }
 
-validate_ki_opt_directory() {
-  require_directory_exists "$ki_opt_scripts_path"
-  require_directory_exists "$ki_opt_bundle_path"
-  require_directory_exists "$ki_opt_venv_path"
+validate_ki_env_directory() {
+  require_directory_exists "$ki_env_scripts_path"
+  require_directory_exists "$ki_env_bin_path"
+  require_directory_exists "$ki_env_ki_venv_path"
 
   return 0
 }

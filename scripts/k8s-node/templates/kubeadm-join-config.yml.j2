@@ -3,20 +3,22 @@ kind: JoinConfiguration
 discovery:
   bootstrapToken:
     apiServerEndpoint: {{ internal_network_ki_cp_dns_name }}:{{ ki_cp_k8s_cp_lb_port }}
-    token: "{{ token }}"
+    token: {{ token }}
     caCertHashes:
       - {{ discovery_token_ca_cert_hash }}
 nodeRegistration:
-  name: "{{ node_name }}"
+  name: {{ node_name }}
   kubeletExtraArgs:
     - name: node-ip
       value: {{ internal_network_interfaces[0]['ip'] }}
-patches:
-  directory: {{ ki_etc_kubeadm_path }}/patches
+{%- if os_major_version is defined and os_major_version == "8" %}
+  ignorePreflightErrors:
+    - SystemVerification
+{%- endif %}
 {%- if k8s_cp | lower == "true" %}
 controlPlane:
   localAPIEndpoint:
     advertiseAddress: {{ internal_network_interfaces[0]['ip'] }}
     bindPort: {{ k8s_apiserver_port }}
-  certificateKey: "{{ certificate_key }}"
+  certificateKey: {{ certificate_key }}
 {%- endif %}

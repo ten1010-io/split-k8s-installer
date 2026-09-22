@@ -1,42 +1,15 @@
 global
     maxconn 5000
     log stdout format raw local0
-    # Taking a backend out before its apiserver is stopped is the only way to do
-    # that without failing the requests in flight, and this is what lb-admin.sh
-    # says it through. A unix socket rather than a port, so that nothing outside
-    # the container can reach an api that takes no credentials and can disable a
-    # backend. lb-admin.sh gets to it with the socat the image carries
-    stats socket {{ ki_cp_k8s_cp_lb_admin_socket_path }} mode 660 level admin
-    stats timeout 30s
-    # A reload hands the listeners to a new worker and leaves the old one alive
-    # until the connections it is holding end. A watch on the apiserver does not
-    # end: client-go pings it every thirty seconds, so it never goes idle, and
-    # the worker of every reload would stay for good. Measured after two
-    # reloads, the worker from before the first one was still running. Thirty
-    # minutes is what the client and server timeouts already allow, so nothing
-    # this proxy would hold on to anyway outlives it
-    hard-stop-after 30m
-    # Where the state of the backends is carried across a reload. A reload
-    # otherwise starts from the configuration and forgets which backends were
-    # taken out of rotation by hand, so anything that re-renders the
-    # configuration while a node is being worked on would quietly put that node
-    # back in. setup-k8s-cp-lb.sh writes this file before it reloads, and the
-    # backend below is what reads it back
-    server-state-file {{ ki_cp_k8s_cp_lb_server_state_path }}
 
 defaults
     log                     global
     option                  dontlognull
     timeout queue           20s
     timeout connect         5s
-    # A watch on the apiserver is open for hours and mostly silent, and this is a
-    # tcp proxy, so an idle timeout cuts it. client-go pings over http/2 every 30s,
-    # which the old 35s cleared by five seconds
-    timeout client          30m
-    timeout server          30m
-    # Kept at or below inter, so that a check against an apiserver that hangs
-    # rather than refusing still fails within a bounded number of intervals
-    timeout check           2s
+    timeout client          35s
+    timeout server          35s
+    timeout check           10s
 
 frontend frontend
     mode tcp
@@ -47,57 +20,19 @@ frontend frontend
 backend backend
     mode tcp
     balance roundrobin
-    # Reads back what the global server-state-file holds. The word is the
-    # source, not a section: it says to take the one file named globally rather
-    # than a per backend one
-    load-server-state-from-file global
     option httpchk
     http-check connect ssl
-    # /readyz rather than /healthz. An apiserver that is shutting down keeps
-    # answering /healthz until it stops listening, while /readyz turns negative as
-    # soon as the shutdown begins, which is the notice this needs to take a node
-    # out before it stops serving
-    http-check send meth GET uri /readyz
+    http-check send meth GET uri /healthz
     http-check expect status 200
-    # Six seconds to notice an apiserver that is gone, and sessions held against
-    # one that has been marked down are cut rather than left to hang on it until
-    # they time out
-    default-server inter 2s fall 3 rise 2 on-marked-down shutdown-sessions
-    # Those six seconds are what a node that dies between two checks is still
-    # being given traffic for, and a connection handed to it in that window is
-    # refused. Refused at connect time is the one failure a proxy can take back:
-    # nothing was sent, so there is nothing to have sent twice, and the
-    # connection is made to another node instead. The interval says to do that on
-    # every retry rather than only on the last, since retrying the node that just
-    # refused is a wasted round trip. An apiserver that accepts the connection
-    # and then breaks it is not retried, which is correct, as bytes may have gone
-    # either way by then
-    retries 3
-    option redispatch 1
 
 {% for ih in backend_server_ih_list -%}
-{{"    "}}server {{ ih }} {{ internal_network_hosts[ih]["interfaces"][0]["ip"] }}:{{ k8s_apiserver_port }} check verify none
+{{"    "}}server server{{ loop.index }} {{ internal_network_hosts[ih]["interfaces"][0]["ip"] }}:{{ k8s_apiserver_port }} check verify none
 {% endfor %}
 frontend stats
     mode http
     bind 0.0.0.0:{{ ki_cp_k8s_cp_lb_stats_port }}
-    # What keepalived asks to decide whether this node should keep the vip. It
-    # answers while the load balancer is running and the connection is refused
-    # once it is not, which is the whole of what the answer has to say. Ahead of
-    # the stats authentication on purpose, since a health check carries no
-    # credentials and the answer says nothing a caller could not learn by trying
-    # the vip.
-    #
-    # Deliberately not conditioned on there being a usable backend. Every node
-    # runs the same backend list, so no apiserver being reachable is not a
-    # reason to prefer another node, and the vip carries the dns server and the
-    # registry as well as the apiservers. Conditioning on it also deadlocks the
-    # install: the first cluster has no apiserver yet, so every node would fail
-    # the check, no node would hold the vip, the dns name of the registry would
-    # not resolve and kubeadm could never pull the image that creates the first
-    # apiserver
-    monitor-uri /lb-healthz
     stats enable
     stats uri /
     stats refresh 10s
     stats auth admin:"$STATS_ADMIN_PW"
+    stats admin if TRUE
